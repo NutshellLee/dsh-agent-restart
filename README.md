@@ -40,6 +40,27 @@
 - 一次性续跑：续跑只需要接一次，干完自然结束，不需要目标、轮次上限或完成标记这些额外机制。
 - 文件交接：两个插件职责分开，重启插件不碰语音逻辑，语音插件不碰重启逻辑。
 
+## 执行流程
+
+1. agent 调用 `restart_harness(reason, pending)`，插件写 `restart-journal.json`（原因、待办、语音状态、会话 id）。
+2. 插件生成外部助手脚本，用 WMI 创建助手进程（脱离应用进程树，应用被杀时它不会跟着死）。
+3. 助手等待几秒 → 强杀 `DSH NEXT` → 等进程退干净 → 写一次性标记 `agent-restart.flag` → 拉起应用。
+4. 新进程启动：插件看到标记才读 journal（用户手动开应用没有标记，不触发）；写 `voice-resume.json` 交给语音插件，然后删标记。
+5. 应用就绪 5 秒后，插件给会话排一条来源为 `restart` 的续跑消息，开一个新回合。
+6. agent 接着把待办做完并汇报；journal 状态变成 `continued`。
+
+## 安装
+
+要求：Windows、DSH NEXT 桌面版 `2.0.17-next`、系统自带 PowerShell 与 WMI。
+
+方式 A（推荐）：
+
+1. 在 DSH profile 里安装：`@nutshelllee/dsh-agent-restart`。
+2. 在 profile 的 `cordis.patch.yml` 里插入：`- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"`。
+3. 重启 DSH，工具列表里会出现 `restart_harness`。
+
+方式 B（本地开发）：把本仓库目录链接到 profile 的 `node_modules/@nutshelllee/dsh-agent-restart`，再按上面第 2、3 步操作。
+
 ## 已知限制
 
 - 重启本身需要一条能脱离应用进程树的外部路径；宿主进程里直接 spawn 在本机不可靠，工具会如实返回失败并提示改用外部 pwsh 发 WMI 调用。
