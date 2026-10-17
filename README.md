@@ -1,94 +1,83 @@
 # dsh-agent-restart
 
-让 DeepSeek Harness（DSH NEXT 桌面版）在 agent 自己重启之后，能自动接着把没做完的事做完。
+[English](./README.md) | [中文](./README.zh.md)
 
-## 它解决什么问题
+Lets DeepSeek Harness (DSH NEXT desktop) pick up unfinished work by itself after the agent restarts the app.
 
-重启会杀掉当前回合，而且新回合只有被触发才会开始。普通做法要么靠人再开口，要么丢上下文重来。这个插件把重启做成流程的一部分：
+## What problem it solves
 
-- 重启前记下待办，重启后自动开一个新回合接着做，不需要用户重述。
-- 只对 agent 自己触发的重启生效；用户手动关闭再打开应用，什么都不做。
+Restarting kills the current turn, and a new turn only starts when something triggers it. The usual choices are waiting for the human to speak again or losing context and starting over. This plugin makes restart part of the workflow:
 
-## 兼容性
+- Record the pending work before restarting; open a fresh turn automatically afterwards, so the user never has to restate it.
+- Only agent-initiated restarts trigger this. Closing and reopening the app by hand does nothing.
+- The restart tool confirms the helper actually started; if it did not, it reports failure instead of a silent success.
 
-- 适配 DSH NEXT 桌面版 `2.0.17-next`（附带的 `@deepseek-ai/*` 为 `0.2.0-rc.2`）。
-- 仅 Windows：重启依赖 PowerShell 与 WMI。
-- 使用的是宿主上下文里的会话服务（`sessionController`、`sessions`）来排续跑消息；DSH 升级后这些内部接口可能变化，升级后需要重新验证。插件不承诺兼容旧版本 DSH，遇到不兼容会如实报错，不会静默失败。
+## Compatibility
 
-## 功能
+- Built for DSH NEXT desktop `2.0.17-next` (bundled `@deepseek-ai/*` at `0.2.0-rc.2`).
+- Windows only: restart relies on PowerShell and WMI.
+- The continuation message is queued through host services (`sessionController`, `sessions`). Those are internal interfaces and may change between DSH releases, so re-verify after upgrading. The plugin does not promise compatibility with older DSH versions; when it cannot work it reports an error instead of failing silently.
 
-### 1. 重启工具 `restart_harness`
+## Features
 
-- 写重启日志（原因、待办、语音状态、会话 id），生成外部助手脚本。
-- 用 WMI 创建助手进程，让它脱离应用进程树：等几秒、杀掉应用、等进程退干净、写一次性标记、再拉起应用。
-- 拉起后检查 `restart.log` 确认助手进程是否真的启动；没启动就按失败处理，不谎报成功。
+### 1. The `restart_harness` tool
 
-### 2. 重启后自动续跑
+- Writes a restart journal (reason, pending work, voice state, session id) and generates an external helper script.
+- Creates the helper through WMI so it leaves the app's process tree: wait, kill the app, wait for exit, write a one-shot marker, then relaunch.
+- After launching, checks `restart.log` to confirm the helper actually started; otherwise reports failure.
 
-- 应用就绪（插件加载）后 5 秒，给会话排一条来源为 `restart` 的消息，开一个新回合继续做。
-- 只排一次，不建目标、不标完成、不注入系统提示；失败每 3 秒重试，最多 6 次。
-- 界面上显示为“收到执行请求”的系统提示，不是用户发言。
+### 2. Automatic continuation after restart
 
-### 3. 与语音插件的文件交接
+- Five seconds after the app is ready (plugin apply), queues a message with source `restart` into the session and opens a new turn.
+- Queued once. No goal, no completion mark, no system-prompt injection. Retries every 3 seconds, up to 6 times.
+- The UI renders it as a system notice (“execution requested”), not as a user message.
 
-- 重启前记下语音是否开着，启动时写 `voice-resume.json`。
-- 语音插件（`dsh-voice-mode-desktop`）自己读这个文件决定要不要自动恢复语音；两个插件可以独立安装，互不依赖。
+### 3. Handover to the voice plugin
 
-## 为什么这样设计
+- Records whether voice mode was on before restart and writes `voice-resume.json` on startup.
+- The voice plugin (`dsh-voice-mode-desktop`) reads that file and decides whether to restore voice mode. The two plugins install independently and do not depend on each other.
 
-- 外部助手进程 + WMI：这是本机验证过唯一可靠的重启方式，不依赖应用内拿不到的 Electron 对象。
-- 一次性续跑：续跑只需要接一次，干完自然结束，不需要目标、轮次上限或完成标记这些额外机制。
-- 文件交接：两个插件职责分开，重启插件不碰语音逻辑，语音插件不碰重启逻辑。
+## Execution flow
 
-## 和语音插件的联动
+1. The agent calls `restart_harness(reason, pending)`; the plugin writes `restart-journal.json`.
+2. The plugin generates the helper script and creates the helper process through WMI, outside the app's process tree.
+3. The helper waits, kills `DSH NEXT`, waits for exit, writes the one-shot marker `agent-restart.flag`, and relaunches the app.
+4. On startup the plugin reads the journal only when the marker exists (manual launches have no marker); it writes `voice-resume.json` for the voice plugin and removes the marker.
+5. Five seconds after the app is ready, the plugin queues the source-`restart` continuation message and opens a new turn.
+6. The agent finishes the pending work and reports; the journal becomes `continued`.
 
-重启前，插件把语音状态（开没开、当前语音会话 id）写进重启日志；重启后写一份 `voice-resume.json` 交接文件。语音插件（`dsh-voice-mode-desktop`）启动时读它，决定要不要自动恢复语音模式，恢复成功后回执并删掉交接文件。
+## Integration with the voice plugin
 
-所以重启能保住语音状态：重启前开着，回来还是开着，可以直接按住说话。只有 agent 自己触发的重启才走这条联动；用户手动关闭再打开应用，没有一次性标记，不会自动恢复语音。
+Before restarting, the plugin records the voice state (on/off, active session id) in the journal. After restart it writes `voice-resume.json`; the voice plugin reads it on startup and restores voice mode when needed, then acknowledges and deletes the file.
 
-两个插件可以各自独立安装：不装语音插件，重启照常工作，只是没有语音恢复；装了语音插件，联动自动生效，不需要额外配置。
+So voice state survives the restart: if it was on before, it is on afterwards and you can hold to speak. Only agent-initiated restarts use this path; manual launches do not auto-restore. If the voice plugin is not installed, restart still works without voice restoration.
 
-## 为什么不用应用内接口、也不用社区重启插件
+## Why not in-app relaunch or a community restart plugin
 
-应用内直接重启（Electron 的 relaunch）看起来最干净，但在 DSH 桌面版里这条路走不通：插件跑在宿主子进程里，拿不到 Electron 的 app 对象；渲染层倒是有重启命令，但要弹原生确认框，而且必须经由界面层转发。想绕开确认框就得改 DSH 主进程的代码，那是平台核心，升级会覆盖或冲突，不值得。
+Restarting in-process via Electron's relaunch looks cleanest, but it is unreachable here: the plugin runs in a host subprocess without the Electron `app` object. The renderer does expose a restart command, but it shows a native confirmation dialog and must be relayed through the UI. Removing the dialog would mean patching DSH's main process — platform core, overwritten by upgrades, not worth it.
 
-社区的重启插件也评估过：它们自己带一个看门狗进程和一条带 token 的 HTTP 路由，等于把外部进程再包一层，零件更多，还要跟着 DSH 版本做适配，代价比收益大。
+Community restart plugins were evaluated too: they ship their own watchdog process plus a token-protected HTTP route, wrapping the external-process approach in more moving parts and requiring per-version adaptation. The cost outweighs the benefit.
 
-所以这里用外部助手进程 + WMI：助手脱离应用进程树，是这台机器上唯一验证可靠的重启方式；不改 DSH 核心，插件自己可以独立升级。
+That leaves an external helper process created through WMI: the only restart path verified to work on this machine, and it leaves DSH core untouched so the plugin can be updated independently.
 
-## 执行流程
+## Known limitations
 
-1. agent 调用 `restart_harness(reason, pending)`，插件写 `restart-journal.json`（原因、待办、语音状态、会话 id）。
-2. 插件生成外部助手脚本，用 WMI 创建助手进程（脱离应用进程树，应用被杀时它不会跟着死）。
-3. 助手等待几秒 → 强杀 `DSH NEXT` → 等进程退干净 → 写一次性标记 `agent-restart.flag` → 拉起应用。
-4. 新进程启动：插件看到标记才读 journal（用户手动开应用没有标记，不触发）；写 `voice-resume.json` 交给语音插件，然后删标记。
-5. 应用就绪 5 秒后，插件给会话排一条来源为 `restart` 的续跑消息，开一个新回合。
-6. agent 接着把待办做完并汇报；journal 状态变成 `continued`。
+- Restart needs a path outside the app's process tree; spawning directly from the host is unreliable on this machine, so the tool reports that failure and points at the external WMI call.
+- Windows only.
+- Voice restoration only happens when the voice plugin is installed.
 
-## 安装
+## Install
 
-要求：Windows、DSH NEXT 桌面版 `2.0.17-next`、系统自带 PowerShell 与 WMI。
+Requirements: Windows, DSH NEXT desktop `2.0.17-next`, PowerShell and WMI available.
 
-方式 A（推荐）：
+Option A (recommended):
 
-1. 在 DSH profile 里安装：`@nutshelllee/dsh-agent-restart`。
-2. 在 profile 的 `cordis.patch.yml` 里插入：`- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"`。
-3. 重启 DSH，工具列表里会出现 `restart_harness`。
+1. Install `@nutshelllee/dsh-agent-restart` into the DSH profile.
+2. Add `- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"` to the profile's `cordis.patch.yml` insert list.
+3. Restart DSH; `restart_harness` appears in the tool list.
 
-方式 B（本地开发）：把本仓库目录链接到 profile 的 `node_modules/@nutshelllee/dsh-agent-restart`，再按上面第 2、3 步操作。
+Option B (local development): link this repository into `node_modules/@nutshelllee/dsh-agent-restart` of the profile, then follow steps 2 and 3.
 
-## 已知限制
+## License
 
-- 重启本身需要一条能脱离应用进程树的外部路径；宿主进程里直接 spawn 在本机不可靠，工具会如实返回失败并提示改用外部 pwsh 发 WMI 调用。
-- 仅 Windows。
-- 语音自动恢复只有装了语音插件才生效。
-
-## 安装（本地开发）
-
-1. 把本目录链接进 profile 的 `node_modules/@nutshelllee/dsh-agent-restart`。
-2. 在 profile 的 `cordis.patch.yml` 里插入 `- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"`。
-3. 重启 DSH。
-
-## 许可证
-
-MIT，见 [LICENSE](./LICENSE)。
+MIT, see [LICENSE](./LICENSE).
