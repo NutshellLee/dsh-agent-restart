@@ -72,7 +72,7 @@ Requirements: Windows, DSH NEXT desktop `2.0.17-next`, PowerShell and WMI availa
 
 Option A (recommended):
 
-1. Install `@nutshelllee/dsh-agent-restart` into the DSH profile.
+1. Install the npm package: `npm install @nutshelllee/dsh-agent-restart` (or add it to the DSH profile dependencies).
 2. Add `- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"` to the profile's `cordis.patch.yml` insert list.
 3. Restart DSH; `restart_harness` appears in the tool list.
 

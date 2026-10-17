@@ -73,7 +73,7 @@
 
 方式 A（推荐）：
 
-1. 在 DSH profile 里安装：`@nutshelllee/dsh-agent-restart`。
+1. 安装 npm 包：`npm install @nutshelllee/dsh-agent-restart`（或装进 DSH profile 的依赖里）。
 2. 在 profile 的 `cordis.patch.yml` 里插入：`- id: agent-restart, name: "@nutshelllee/dsh-agent-restart"`。
 3. 重启 DSH，工具列表里会出现 `restart_harness`。
 

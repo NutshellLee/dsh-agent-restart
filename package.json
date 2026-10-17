@@ -16,5 +16,11 @@
     "dsh-plugin",
     "restart"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "files": [
+    "lib",
+    "README.md",
+    "README.zh.md",
+    "LICENSE"
+  ]
 }
