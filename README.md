@@ -62,7 +62,7 @@ That leaves an external helper process created through WMI: the only restart pat
 
 ## Known limitations
 
-- Restart needs a path outside the app's process tree; spawning directly from the host is unreliable on this machine, so the tool reports that failure and points at the external WMI call.
+- Restart needs a path outside the app's process tree. The launcher is invoked synchronously and its exit code is checked: if it exits non-zero or the helper never writes its first log line, the tool reports the exact failure instead of claiming success.
 - Windows only.
 - Voice restoration only happens when the voice plugin is installed.
 

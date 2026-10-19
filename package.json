@@ -1,6 +1,6 @@
 {
   "name": "@nutshelllee/dsh-agent-restart",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent-initiated restart for DeepSeek Harness: one tool that writes a restart journal, relaunches the app through a detached WMI helper, and injects the pending work back after restart.",
   "type": "module",
   "main": "lib/index.js",
